@@ -5,6 +5,7 @@ from openpilot.common.parameterized import parameterized
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.car.cruise import VCruiseHelper, CRUISE_LONG_PRESS, IMPERIAL_INCREMENT
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import get_speed_limit_offset
 
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
@@ -30,7 +31,8 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
       resolver.speedLimitValid = True
       resolver.source = source
       resolver.speedLimit = speed_limit_mph * CV.MPH_TO_MS
-      offset = self.v_cruise_helper.get_speed_limit_offset(resolver.speedLimit, False)
+      offset = get_speed_limit_offset(self.v_cruise_helper.speed_limit_offset_type, self.v_cruise_helper.speed_limit_offset_value,
+                                      resolver.speedLimit, False)
       resolver.speedLimitFinalLast = resolver.speedLimit + offset
     if ahead_mph is not None:
       lmd_sp.speedLimitAheadValid = True

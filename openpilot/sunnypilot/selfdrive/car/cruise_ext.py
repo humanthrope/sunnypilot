@@ -11,9 +11,11 @@ from opendbc.car.structs import car
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
+from openpilot.sunnypilot import get_sanitize_int_param
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import ACTIVE_STATES as SLA_ACTIVE_STATES
-from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target, speed_limit_ahead_shown
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target, get_speed_limit_offset, \
+  speed_limit_ahead_shown
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 
 ButtonType = car.CarState.ButtonEvent.Type
@@ -26,7 +28,6 @@ CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
 V_CRUISE_MIN = 8
 V_CRUISE_MAX = 145
 V_CRUISE_UNSET = 255
-IMPERIAL_INCREMENT = round(CV.MPH_TO_KPH, 1)  # round here to avoid rounding errors incrementing set speed
 
 
 def update_manual_button_timers(CS: car.CarState, button_timers: dict[car.CarState.ButtonEvent.Type, int]) -> None:
@@ -84,7 +85,8 @@ class VCruiseHelperSP:
 
   def read_speed_limit_params(self) -> None:
     self.speed_limit_mode = self.params.get("SpeedLimitMode", return_default=True)
-    self.speed_limit_offset_type = self.params.get("SpeedLimitOffsetType", return_default=True)
+    self.speed_limit_offset_type = get_sanitize_int_param("SpeedLimitOffsetType", OffsetType.min().value, OffsetType.max().value,
+                                                          self.params)
     self.speed_limit_offset_value = self.params.get("SpeedLimitValueOffset", return_default=True)
 
   def update_v_cruise_delta(self, long_press: bool, v_cruise_delta: float) -> tuple[bool, float]:
@@ -140,14 +142,6 @@ class VCruiseHelperSP:
                                                                                   resolver.source, resolver.speedLimit,
                                                                                   LMD_SP.speedLimitAheadValid, self.speed_limit_ahead)
 
-  def get_speed_limit_offset(self, speed_limit: float, is_metric: bool) -> float:
-    # same as SpeedLimitResolver, for an arbitrary speed limit
-    if self.speed_limit_offset_type == OffsetType.fixed:
-      return float(self.speed_limit_offset_value * (CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS))
-    elif self.speed_limit_offset_type == OffsetType.percentage:
-      return float(self.speed_limit_offset_value * 0.01 * speed_limit)
-    return 0.
-
   @property
   def update_speed_limit_final_last_changed(self) -> bool:
     return self.has_speed_limit and bool(self.speed_limit_final_last_kph != self.prev_speed_limit_final_last_kph)
@@ -162,12 +156,13 @@ class VCruiseHelperSP:
     return False
 
   def update_v_cruise_speed_limit_snap(self, CS: car.CarState, button_type: car.CarState.ButtonEvent.Type,
-                                       long_press: bool, is_metric: bool) -> bool:
+                                       long_press: bool, is_metric: bool, v_cruise_delta: float) -> bool:
     """
     ICBM: on a long press, snap the set speed to the speed limit (with offset) if the limit
     is in the direction of the pressed button. If the UI is showing an upcoming speed limit,
     that one is used instead. Further long press repeats in the same hold
     keep the set speed at the speed limit until the button is released.
+    v_cruise_delta is the base set speed increment in kph (1 kph or 1 mph), the snap target is a multiple of it.
     Returns True if the set speed change was handled here.
     """
     if not (self.CP.pcmCruise and not self.CP_SP.pcmCruiseSpeed) or not long_press:
@@ -180,12 +175,12 @@ class VCruiseHelperSP:
       return False
 
     speed_conv = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
-    unit_kph = 1. if is_metric else IMPERIAL_INCREMENT
     if self.speed_limit_ahead_shown:
-      target = self.speed_limit_ahead + self.get_speed_limit_offset(self.speed_limit_ahead, is_metric)
+      offset = get_speed_limit_offset(self.speed_limit_offset_type, self.speed_limit_offset_value, self.speed_limit_ahead, is_metric)
+      target = self.speed_limit_ahead + offset
     else:
       target = self.speed_limit_final_last
-    target_kph = round(target * speed_conv) * unit_kph
+    target_kph = round(target * speed_conv) * v_cruise_delta
     target_kph = float(np.clip(round(target_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
 
     # compare as displayed: v_cruise_kph isn't necessarily a multiple of the unit (PCM initial set speed, SLA, gas override)

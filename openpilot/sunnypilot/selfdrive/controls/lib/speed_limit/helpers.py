@@ -9,7 +9,7 @@ from openpilot.cereal import custom
 from opendbc.car.structs import car
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
-from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 
 AssistState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
 SpeedLimitSource = custom.LongitudinalPlanSP.SpeedLimit.Source
@@ -28,6 +28,17 @@ def speed_limit_ahead_shown(mode: SpeedLimitMode, assist_state: custom.Longitudi
           speed_limit_ahead_valid and
           speed_limit_ahead > 0 and
           speed_limit_ahead != speed_limit)
+
+
+def get_speed_limit_offset(offset_type: OffsetType, offset_value: float, speed_limit: float, is_metric: bool) -> float:
+  if offset_type == OffsetType.off:
+    return 0.
+  elif offset_type == OffsetType.fixed:
+    return float(offset_value * (CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS))
+  elif offset_type == OffsetType.percentage:
+    return float(offset_value * 0.01 * speed_limit)
+  else:
+    raise NotImplementedError("Offset not supported")
 
 
 def compare_cluster_target(v_cruise_cluster: float, target_set_speed: float, is_metric: bool) -> tuple[bool, bool]:

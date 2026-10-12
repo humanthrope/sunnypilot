@@ -115,7 +115,7 @@ class VCruiseHelper(VCruiseHelperSP):
       return
 
     # ICBM: long press snaps set speed to the speed limit
-    if self.update_v_cruise_speed_limit_snap(CS, button_type, long_press, is_metric):
+    if self.update_v_cruise_speed_limit_snap(CS, button_type, long_press, is_metric, v_cruise_delta):
       return
 
     long_press, v_cruise_delta = VCruiseHelperSP.update_v_cruise_delta(self, long_press, v_cruise_delta)
