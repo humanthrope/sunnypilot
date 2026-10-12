@@ -4,10 +4,9 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
-import pytest
-
 from openpilot.common.constants import CV
 from openpilot.common.parameterized import parameterized
+from openpilot.common.test import OpenpilotTestCase
 
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import AssistState, SpeedLimitSource, get_speed_limit_offset, \
@@ -23,7 +22,7 @@ SHOWN = {
 }
 
 
-class TestSpeedLimitAheadShown:
+class TestSpeedLimitAheadShown(OpenpilotTestCase):
   def test_shown(self):
     assert speed_limit_ahead_shown(**SHOWN)
 
@@ -40,7 +39,7 @@ class TestSpeedLimitAheadShown:
     assert not speed_limit_ahead_shown(**(SHOWN | overrides))
 
 
-class TestGetSpeedLimitOffset:
+class TestGetSpeedLimitOffset(OpenpilotTestCase):
   @parameterized.expand([
     (OffsetType.off, 5, True, 0.),
     (OffsetType.fixed, 5, True, 5 * CV.KPH_TO_MS),
@@ -49,8 +48,8 @@ class TestGetSpeedLimitOffset:
     (OffsetType.percentage, -10, True, -2.5),
   ])
   def test_offset(self, offset_type, offset_value, is_metric, expected):
-    assert get_speed_limit_offset(offset_type, offset_value, 25., is_metric) == pytest.approx(expected)
+    self.assertAlmostEqual(get_speed_limit_offset(offset_type, offset_value, 25., is_metric), expected)
 
   def test_unsupported_offset_type(self):
-    with pytest.raises(NotImplementedError):
+    with self.assertRaises(NotImplementedError):
       get_speed_limit_offset(3, 5, 25., True)
