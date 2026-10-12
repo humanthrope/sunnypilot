@@ -13,12 +13,11 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import ACTIVE_STATES as SLA_ACTIVE_STATES
-from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target, speed_limit_ahead_shown
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 
 ButtonType = car.CarState.ButtonEvent.Type
 SpeedLimitAssistState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
-SpeedLimitSource = custom.LongitudinalPlanSP.SpeedLimit.Source
 
 CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
                        ButtonType.setCruise: 0, ButtonType.resumeCruise: 0,
@@ -136,15 +135,10 @@ class VCruiseHelperSP:
     self.req_plus, self.req_minus = compare_cluster_target(self.v_cruise_cluster_kph * CV.KPH_TO_MS,
                                                            self.speed_limit_final_last, is_metric)
 
-    # mirrors when the onroad UI shows the upcoming speed limit ("AHEAD")
     self.speed_limit_ahead = LMD_SP.speedLimitAhead if LMD_SP is not None else 0.
-    self.speed_limit_ahead_shown = (LMD_SP is not None and
-                                    self.speed_limit_mode != SpeedLimitMode.off and
-                                    self.sla_state != SpeedLimitAssistState.preActive and
-                                    resolver.source == SpeedLimitSource.map and
-                                    LMD_SP.speedLimitAheadValid and
-                                    self.speed_limit_ahead > 0 and
-                                    self.speed_limit_ahead != resolver.speedLimit)
+    self.speed_limit_ahead_shown = LMD_SP is not None and speed_limit_ahead_shown(self.speed_limit_mode, self.sla_state,
+                                                                                  resolver.source, resolver.speedLimit,
+                                                                                  LMD_SP.speedLimitAheadValid, self.speed_limit_ahead)
 
   def get_speed_limit_offset(self, speed_limit: float, is_metric: bool) -> float:
     # same as SpeedLimitResolver, for an arbitrary speed limit

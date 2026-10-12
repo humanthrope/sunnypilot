@@ -14,6 +14,7 @@ from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.onroad.hud_renderer import UI_CONFIG
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import speed_limit_ahead_shown
 from openpilot.common.hardware import HARDWARE
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -286,10 +287,8 @@ class SpeedLimitRenderer(Widget, SpeedLimitAlertRenderer):
       self._draw_text_centered(self.font_bold, sub, int(box_sz * f_scale), rl.Vector2(s_rect.x + box_sz / 2, s_rect.y + box_sz / 2), white)
 
   def _draw_ahead_info(self, sign_rect):
-    source_is_map = self.speed_limit_source == SpeedLimitSource.map
-    valid = self.speed_limit_ahead_valid and self.speed_limit_ahead > 0 and self.speed_limit_ahead != self.speed_limit
-
-    if not (valid and source_is_map):
+    if not speed_limit_ahead_shown(ui_state.speed_limit_mode, self.speed_limit_assist_state, self.speed_limit_source,
+                                   self.speed_limit, self.speed_limit_ahead_valid, self.speed_limit_ahead):
       return
 
     rect = rl.Rectangle(sign_rect.x + (sign_rect.width - 170) / 2, sign_rect.y + sign_rect.height + 10, 170, 160)

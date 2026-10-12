@@ -11,6 +11,24 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode
 
+AssistState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
+SpeedLimitSource = custom.LongitudinalPlanSP.SpeedLimit.Source
+
+
+def speed_limit_ahead_shown(mode: SpeedLimitMode, assist_state: custom.LongitudinalPlanSP.SpeedLimit.AssistState,
+                            source: custom.LongitudinalPlanSP.SpeedLimit.Source, speed_limit: float,
+                            speed_limit_ahead_valid: bool, speed_limit_ahead: float) -> bool:
+  """
+  Whether the onroad UI shows the upcoming speed limit ("AHEAD"). ICBM snaps the set speed to it when shown.
+  speed_limit and speed_limit_ahead can be in any unit, as long as it's the same for both.
+  """
+  return (mode != SpeedLimitMode.off and
+          assist_state != AssistState.preActive and
+          source == SpeedLimitSource.map and
+          speed_limit_ahead_valid and
+          speed_limit_ahead > 0 and
+          speed_limit_ahead != speed_limit)
+
 
 def compare_cluster_target(v_cruise_cluster: float, target_set_speed: float, is_metric: bool) -> tuple[bool, bool]:
   speed_conv = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
