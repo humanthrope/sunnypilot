@@ -167,7 +167,8 @@ class VCruiseHelperSP:
 
     return False
 
-  def update_v_cruise_speed_limit_snap(self, button_type: car.CarState.ButtonEvent.Type, long_press: bool, is_metric: bool) -> bool:
+  def update_v_cruise_speed_limit_snap(self, CS: car.CarState, button_type: car.CarState.ButtonEvent.Type,
+                                       long_press: bool, is_metric: bool) -> bool:
     """
     ICBM: on a long press, snap the set speed to the speed limit (with offset) if the limit
     is in the direction of the pressed button. If the UI is showing an upcoming speed limit,
@@ -193,13 +194,19 @@ class VCruiseHelperSP:
     target_kph = round(target * speed_conv) * unit_kph
     target_kph = float(np.clip(round(target_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
 
-    if (button_type == ButtonType.accelCruise and target_kph > self.v_cruise_kph) or \
-       (button_type == ButtonType.decelCruise and target_kph < self.v_cruise_kph):
-      self.v_cruise_kph = target_kph
-      self.speed_limit_snapped = True
-      return True
+    # compare as displayed: v_cruise_kph isn't necessarily a multiple of the unit (PCM initial set speed, SLA, gas override)
+    req_plus, req_minus = compare_cluster_target(self.v_cruise_kph * CV.KPH_TO_MS, target_kph * CV.KPH_TO_MS, is_metric)
+    if not ((button_type == ButtonType.accelCruise and req_plus) or
+            (button_type == ButtonType.decelCruise and req_minus)):
+      return False
 
-    return False
+    # same as a regular press: if decel is pressed while overriding, clip cruise speed to minimum of vEgo
+    if CS.gasPressed and button_type == ButtonType.decelCruise:
+      target_kph = float(np.clip(round(max(target_kph, CS.vEgo * CV.MS_TO_KPH), 1), self.v_cruise_min, V_CRUISE_MAX))
+
+    self.v_cruise_kph = target_kph
+    self.speed_limit_snapped = True
+    return True
 
   def update_speed_limit_assist_v_cruise_non_pcm(self) -> None:
     if self.sla_state in SLA_ACTIVE_STATES and (self.prev_sla_state not in SLA_ACTIVE_STATES or

@@ -47,8 +47,9 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     # align to the imperial increment so long press rounding is deterministic
     self.v_cruise_helper.v_cruise_kph = round(set_speed_mph * IMPERIAL_INCREMENT, 1)
 
-  def hold(self, button_type: car.CarState.ButtonEvent.Type, frames: int) -> None:
-    CS = car.CarState(cruiseState={"available": True})
+  def hold(self, button_type: car.CarState.ButtonEvent.Type, frames: int,
+           gas_pressed: bool = False, v_ego_mph: float = 0.) -> None:
+    CS = car.CarState(cruiseState={"available": True}, gasPressed=gas_pressed, vEgo=v_ego_mph * CV.MPH_TO_MS)
     CS.buttonEvents = [ButtonEvent(type=button_type, pressed=True)]
     self.v_cruise_helper.update_v_cruise(CS, enabled=True, is_metric=False)
     CS.buttonEvents = []
@@ -97,6 +98,35 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
     self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
     assert self.set_speed_mph == 70
+
+  @parameterized.expand([
+    (ButtonType.decelCruise, 45 * CV.MPH_TO_KPH, 45, 40),  # PCM initial set speed (72.42 kph, shows 45)
+    (ButtonType.accelCruise, 103.9, 65, 70),               # set speed from gas override (64.56 mph, shows 65)
+  ])
+  def test_unaligned_set_speed_at_limit_does_not_snap(self, button_type, set_speed_kph, limit_mph, expected_mph):
+    # set speed shows the limit but isn't a multiple of the imperial increment: a long press
+    # must not "snap" in place and then hold the set speed there for the rest of the press
+    self.engage(limit_mph)
+    self.v_cruise_helper.v_cruise_kph = set_speed_kph
+    self.set_speed_limit(limit_mph)
+    self.hold(button_type, CRUISE_LONG_PRESS * 2 + 1)
+    assert self.set_speed_mph == expected_mph
+
+  @parameterized.expand([
+    (60, 60),  # vEgo above the limit: clipped to vEgo
+    (40, 45),  # vEgo below the limit: snaps to the limit
+  ])
+  def test_snap_down_while_overriding_clips_to_v_ego(self, v_ego_mph, expected_mph):
+    self.engage(65)
+    self.set_speed_limit(45)
+    self.hold(ButtonType.decelCruise, CRUISE_LONG_PRESS + 1, gas_pressed=True, v_ego_mph=v_ego_mph)
+    assert self.set_speed_mph == expected_mph
+
+  def test_snap_up_while_overriding_not_clipped(self):
+    self.engage(45)
+    self.set_speed_limit(65)
+    self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1, gas_pressed=True, v_ego_mph=70)
+    assert self.set_speed_mph == 65
 
   @parameterized.expand([
     (ButtonType.accelCruise, 45, 55, 65, 65),  # upcoming higher limit is used
