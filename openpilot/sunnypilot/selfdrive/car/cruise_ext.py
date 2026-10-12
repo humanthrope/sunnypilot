@@ -72,6 +72,7 @@ class VCruiseHelperSP:
 
     # ICBM long press snap to speed limit
     self.speed_limit_snapped = False
+    self.speed_limit_last = 0.
     self.speed_limit_ahead_shown = False
     self.speed_limit_ahead = 0.
     self.speed_limit_mode = SpeedLimitMode.off
@@ -145,6 +146,7 @@ class VCruiseHelperSP:
     self.req_plus, self.req_minus = compare_cluster_target(self.v_cruise_cluster_kph * CV.KPH_TO_MS,
                                                            self.speed_limit_final_last, is_metric)
 
+    self.speed_limit_last = resolver.speedLimitLast
     self.speed_limit_ahead = LMD_SP.speedLimitAhead if LMD_SP is not None else 0.
     self.speed_limit_ahead_shown = LMD_SP is not None and speed_limit_ahead_shown(self.speed_limit_mode, self.sla_state,
                                                                                   resolver.source, resolver.speedLimit,
@@ -171,7 +173,7 @@ class VCruiseHelperSP:
     that one is used instead. Further long press repeats in the same hold
     keep the set speed at the speed limit until the button is released.
     Off when the speed limit isn't displayed (SpeedLimitMode off): long presses keep their regular increment.
-    v_cruise_delta is the base set speed increment in kph (1 kph or 1 mph), the snap target is a multiple of it.
+    v_cruise_delta is the base set speed increment in kph (1 kph or 1 mph), the snap target is the nearest multiple of it.
     Returns True if the set speed change was handled here.
     """
     if not (self.CP.pcmCruise and not self.CP_SP.pcmCruiseSpeed) or not long_press:
@@ -186,13 +188,15 @@ class VCruiseHelperSP:
     if not self.has_speed_limit:
       return False
 
+    # offset applied like SpeedLimitResolver, so the target rounds like SLA's. speedLimitFinalLast is published
+    # as Float32, which can round the other way on .5 (65 mph + 10%: SLA 72, Float32 71)
+    speed_limit = self.speed_limit_ahead if self.speed_limit_ahead_shown else self.speed_limit_last
+    target = speed_limit + get_speed_limit_offset(self.speed_limit_offset_type, self.speed_limit_offset_value, speed_limit, is_metric)
+
+    # back to kph from the displayed value: IMPERIAL_INCREMENT is rounded, n * IMPERIAL_INCREMENT shows as n - 1 from 87 mph
     speed_conv = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
-    if self.speed_limit_ahead_shown:
-      offset = get_speed_limit_offset(self.speed_limit_offset_type, self.speed_limit_offset_value, self.speed_limit_ahead, is_metric)
-      target = self.speed_limit_ahead + offset
-    else:
-      target = self.speed_limit_final_last
-    target_kph = round(target * speed_conv) * v_cruise_delta
+    target_kph = round(target * speed_conv) * (1. if is_metric else CV.MPH_TO_KPH)
+    target_kph = round(target_kph / v_cruise_delta) * v_cruise_delta
     target_kph = float(np.clip(round(target_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
 
     # compare as displayed: v_cruise_kph isn't necessarily a multiple of the unit (PCM initial set speed, SLA, gas override)

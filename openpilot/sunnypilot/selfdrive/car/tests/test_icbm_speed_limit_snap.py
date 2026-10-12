@@ -1,5 +1,7 @@
 from unittest import mock
 
+import numpy as np
+
 from opendbc.car.structs import car
 from openpilot.cereal import custom
 from openpilot.common.constants import CV
@@ -33,8 +35,10 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     if speed_limit_mph is not None:
       resolver = lp_sp.speedLimit.resolver
       resolver.speedLimitValid = True
+      resolver.speedLimitLastValid = True
       resolver.source = source
       resolver.speedLimit = speed_limit_mph * CV.MPH_TO_MS
+      resolver.speedLimitLast = resolver.speedLimit
       offset = get_speed_limit_offset(self.v_cruise_helper.speed_limit_offset_type, self.v_cruise_helper.speed_limit_offset_value,
                                       resolver.speedLimit, False)
       resolver.speedLimitFinalLast = resolver.speedLimit + offset
@@ -175,6 +179,35 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     self.v_cruise_helper.speed_limit_offset_value = offset_value
     self.engage(45)
     self.set_speed_limit(55, 65)
+    self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
+    assert self.set_speed_mph == expected_mph
+
+  @parameterized.expand([(25,), (35,), (45,), (55,), (65,), (75,)])
+  def test_snap_rounds_like_speed_limit_assist(self, limit_mph):
+    # + 10% lands on .5 mph. SLA rounds the resolver's float64 limit + offset, the published (Float32)
+    # speedLimitFinalLast can round the other way. The current and the upcoming limit both snap to SLA's target
+    self.v_cruise_helper.speed_limit_offset_type = OffsetType.percentage
+    self.v_cruise_helper.speed_limit_offset_value = 10
+    limit = float(np.float32(limit_mph * CV.MPH_TO_MS))
+    sla_target_mph = round((limit + get_speed_limit_offset(OffsetType.percentage, 10, limit, False)) * CV.MS_TO_MPH)
+
+    self.engage(20)
+    self.set_speed_limit(limit_mph)
+    self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
+    assert self.set_speed_mph == sla_target_mph
+
+    self.engage(20)
+    self.set_speed_limit(15, limit_mph)
+    self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
+    assert self.set_speed_mph == sla_target_mph
+
+  @parameterized.expand([(5, 85), (6, 86), (7, 87), (8, 88), (9, 89), (10, 90)])
+  def test_snap_to_high_imperial_speed(self, offset_mph, expected_mph):
+    # IMPERIAL_INCREMENT is rounded to 1.6 kph: n * IMPERIAL_INCREMENT shows as n - 1 from 87 mph
+    self.v_cruise_helper.speed_limit_offset_type = OffsetType.fixed
+    self.v_cruise_helper.speed_limit_offset_value = offset_mph
+    self.engage(70)
+    self.set_speed_limit(80)
     self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
     assert self.set_speed_mph == expected_mph
 
