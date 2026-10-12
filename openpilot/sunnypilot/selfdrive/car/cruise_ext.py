@@ -14,9 +14,11 @@ from openpilot.common.params import Params
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import ACTIVE_STATES as SLA_ACTIVE_STATES
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 
 ButtonType = car.CarState.ButtonEvent.Type
 SpeedLimitAssistState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
+SpeedLimitSource = custom.LongitudinalPlanSP.SpeedLimit.Source
 
 CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
                        ButtonType.setCruise: 0, ButtonType.resumeCruise: 0,
@@ -68,11 +70,23 @@ class VCruiseHelperSP:
 
     # ICBM long press snap to speed limit
     self.speed_limit_snapped = False
+    self.speed_limit_ahead_shown = False
+    self.speed_limit_ahead = 0.
+    self.speed_limit_mode = SpeedLimitMode.off
+    self.speed_limit_offset_type = OffsetType.off
+    self.speed_limit_offset_value = 0
+    self.read_speed_limit_params()
 
   def read_custom_set_speed_params(self) -> None:
     self.custom_acc_enabled = self.params.get_bool("CustomAccIncrementsEnabled")
     self.short_increment = self.params.get("CustomAccShortPressIncrement", return_default=True)
     self.long_increment = self.params.get("CustomAccLongPressIncrement", return_default=True)
+    self.read_speed_limit_params()
+
+  def read_speed_limit_params(self) -> None:
+    self.speed_limit_mode = self.params.get("SpeedLimitMode", return_default=True)
+    self.speed_limit_offset_type = self.params.get("SpeedLimitOffsetType", return_default=True)
+    self.speed_limit_offset_value = self.params.get("SpeedLimitValueOffset", return_default=True)
 
   def update_v_cruise_delta(self, long_press: bool, v_cruise_delta: float) -> tuple[bool, float]:
     if not self.custom_acc_enabled:
@@ -112,7 +126,8 @@ class VCruiseHelperSP:
 
     return enabled
 
-  def update_speed_limit_assist(self, is_metric, LP_SP: custom.LongitudinalPlanSP) -> None:
+  def update_speed_limit_assist(self, is_metric, LP_SP: custom.LongitudinalPlanSP,
+                                LMD_SP: "custom.LiveMapDataSP | None" = None) -> None:
     resolver = LP_SP.speedLimit.resolver
     self.has_speed_limit = resolver.speedLimitValid or resolver.speedLimitLastValid
     self.speed_limit_final_last = LP_SP.speedLimit.resolver.speedLimitFinalLast
@@ -120,6 +135,24 @@ class VCruiseHelperSP:
     self.sla_state = LP_SP.speedLimit.assist.state
     self.req_plus, self.req_minus = compare_cluster_target(self.v_cruise_cluster_kph * CV.KPH_TO_MS,
                                                            self.speed_limit_final_last, is_metric)
+
+    # mirrors when the onroad UI shows the upcoming speed limit ("AHEAD")
+    self.speed_limit_ahead = LMD_SP.speedLimitAhead if LMD_SP is not None else 0.
+    self.speed_limit_ahead_shown = (LMD_SP is not None and
+                                    self.speed_limit_mode != SpeedLimitMode.off and
+                                    self.sla_state != SpeedLimitAssistState.preActive and
+                                    resolver.source == SpeedLimitSource.map and
+                                    LMD_SP.speedLimitAheadValid and
+                                    self.speed_limit_ahead > 0 and
+                                    self.speed_limit_ahead != resolver.speedLimit)
+
+  def get_speed_limit_offset(self, speed_limit: float, is_metric: bool) -> float:
+    # same as SpeedLimitResolver, for an arbitrary speed limit
+    if self.speed_limit_offset_type == OffsetType.fixed:
+      return float(self.speed_limit_offset_value * (CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS))
+    elif self.speed_limit_offset_type == OffsetType.percentage:
+      return float(self.speed_limit_offset_value * 0.01 * speed_limit)
+    return 0.
 
   @property
   def update_speed_limit_final_last_changed(self) -> bool:
@@ -137,7 +170,8 @@ class VCruiseHelperSP:
   def update_v_cruise_speed_limit_snap(self, button_type: car.CarState.ButtonEvent.Type, long_press: bool, is_metric: bool) -> bool:
     """
     ICBM: on a long press, snap the set speed to the speed limit (with offset) if the limit
-    is in the direction of the pressed button. Further long press repeats in the same hold
+    is in the direction of the pressed button. If the UI is showing an upcoming speed limit,
+    that one is used instead. Further long press repeats in the same hold
     keep the set speed at the speed limit until the button is released.
     Returns True if the set speed change was handled here.
     """
@@ -152,7 +186,11 @@ class VCruiseHelperSP:
 
     speed_conv = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
     unit_kph = 1. if is_metric else IMPERIAL_INCREMENT
-    target_kph = round(self.speed_limit_final_last * speed_conv) * unit_kph
+    if self.speed_limit_ahead_shown:
+      target = self.speed_limit_ahead + self.get_speed_limit_offset(self.speed_limit_ahead, is_metric)
+    else:
+      target = self.speed_limit_final_last
+    target_kph = round(target * speed_conv) * unit_kph
     target_kph = float(np.clip(round(target_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
 
     if (button_type == ButtonType.accelCruise and target_kph > self.v_cruise_kph) or \
