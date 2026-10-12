@@ -1,8 +1,12 @@
+from unittest import mock
+
 from opendbc.car.structs import car
 from openpilot.cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.parameterized import parameterized
+from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.sunnypilot import PARAMS_UPDATE_PERIOD
 from openpilot.selfdrive.car.cruise import VCruiseHelper, CRUISE_LONG_PRESS, IMPERIAL_INCREMENT
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode as SpeedLimitMode, OffsetType
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import get_speed_limit_offset
@@ -165,3 +169,17 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     self.set_speed_limit(55, 65)
     self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
     assert self.set_speed_mph == expected_mph
+
+  def test_speed_limit_params_update_period(self):
+    with mock.patch("openpilot.sunnypilot.selfdrive.car.cruise_ext.time.monotonic") as monotonic:
+      monotonic.return_value = 100.
+      self.v_cruise_helper.update_speed_limit_params()
+
+      Params().put("SpeedLimitValueOffset", 7, block=True)
+      monotonic.return_value = 100. + PARAMS_UPDATE_PERIOD - 0.1
+      self.v_cruise_helper.update_speed_limit_params()
+      assert self.v_cruise_helper.speed_limit_offset_value == 0
+
+      monotonic.return_value = 100. + PARAMS_UPDATE_PERIOD + 0.1
+      self.v_cruise_helper.update_speed_limit_params()
+      assert self.v_cruise_helper.speed_limit_offset_value == 7

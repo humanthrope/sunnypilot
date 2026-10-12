@@ -307,6 +307,7 @@ class Car:
       # sunnypilot
       self.dynamic_experimental_control = self.params.get_bool("DynamicExperimentalControl")
       self.v_cruise_helper.read_custom_set_speed_params()
+      self.v_cruise_helper.update_speed_limit_params()
 
       time.sleep(0.1)
 
