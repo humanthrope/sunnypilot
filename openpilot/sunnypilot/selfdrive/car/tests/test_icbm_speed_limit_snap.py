@@ -146,17 +146,25 @@ class TestIcbmSpeedLimitSnap(OpenpilotTestCase):
     self.hold(button_type, CRUISE_LONG_PRESS + 1)
     assert self.set_speed_mph == expected_mph
 
-  @parameterized.expand([
-    (SpeedLimitMode.off, SpeedLimitSource.map),
-    (SpeedLimitMode.information, SpeedLimitSource.car),
-  ])
-  def test_ahead_not_shown_uses_current_limit(self, mode, source):
-    # the UI hides the upcoming limit when speed limit mode is off or the source isn't map data
-    self.v_cruise_helper.speed_limit_mode = mode
+  def test_ahead_not_shown_uses_current_limit(self):
+    # the UI hides the upcoming limit when the source isn't map data
     self.engage(45)
-    self.set_speed_limit(55, 65, source=source)
+    self.set_speed_limit(55, 65, source=SpeedLimitSource.car)
     self.hold(ButtonType.accelCruise, CRUISE_LONG_PRESS + 1)
     assert self.set_speed_mph == 55
+
+  @parameterized.expand([
+    (ButtonType.accelCruise, 45, 65, None, 50),  # limit above
+    (ButtonType.decelCruise, 65, 45, None, 60),  # limit below
+    (ButtonType.accelCruise, 45, 55, 65, 50),    # upcoming limit
+  ])
+  def test_speed_limit_mode_off_does_not_snap(self, button_type, start_mph, limit_mph, ahead_mph, expected_mph):
+    # no speed limit displayed: long press keeps its regular increment
+    self.v_cruise_helper.speed_limit_mode = SpeedLimitMode.off
+    self.engage(start_mph)
+    self.set_speed_limit(limit_mph, ahead_mph)
+    self.hold(button_type, CRUISE_LONG_PRESS + 1)
+    assert self.set_speed_mph == expected_mph
 
   @parameterized.expand([
     (OffsetType.fixed, 5, 70),        # 65 + 5

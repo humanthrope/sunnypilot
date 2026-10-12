@@ -170,10 +170,14 @@ class VCruiseHelperSP:
     is in the direction of the pressed button. If the UI is showing an upcoming speed limit,
     that one is used instead. Further long press repeats in the same hold
     keep the set speed at the speed limit until the button is released.
+    Off when the speed limit isn't displayed (SpeedLimitMode off): long presses keep their regular increment.
     v_cruise_delta is the base set speed increment in kph (1 kph or 1 mph), the snap target is a multiple of it.
     Returns True if the set speed change was handled here.
     """
     if not (self.CP.pcmCruise and not self.CP_SP.pcmCruiseSpeed) or not long_press:
+      return False
+
+    if self.speed_limit_mode == SpeedLimitMode.off:
       return False
 
     if self.speed_limit_snapped:
