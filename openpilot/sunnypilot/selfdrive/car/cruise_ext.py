@@ -25,6 +25,7 @@ CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
 V_CRUISE_MIN = 8
 V_CRUISE_MAX = 145
 V_CRUISE_UNSET = 255
+IMPERIAL_INCREMENT = round(CV.MPH_TO_KPH, 1)  # round here to avoid rounding errors incrementing set speed
 
 
 def update_manual_button_timers(CS: car.CarState, button_timers: dict[car.CarState.ButtonEvent.Type, int]) -> None:
@@ -64,6 +65,9 @@ class VCruiseHelperSP:
     self.prev_speed_limit_final_last_kph = 0.
     self.req_plus = False
     self.req_minus = False
+
+    # ICBM long press snap to speed limit
+    self.speed_limit_snapped = False
 
   def read_custom_set_speed_params(self) -> None:
     self.custom_acc_enabled = self.params.get_bool("CustomAccIncrementsEnabled")
@@ -127,6 +131,35 @@ class VCruiseHelperSP:
         return True
       if button_type == ButtonType.accelCruise and self.req_plus:
         return True
+
+    return False
+
+  def update_v_cruise_speed_limit_snap(self, button_type: car.CarState.ButtonEvent.Type, long_press: bool, is_metric: bool) -> bool:
+    """
+    ICBM: on a long press, snap the set speed to the speed limit (with offset) if the limit
+    is in the direction of the pressed button. Further long press repeats in the same hold
+    keep the set speed at the speed limit until the button is released.
+    Returns True if the set speed change was handled here.
+    """
+    if not (self.CP.pcmCruise and not self.CP_SP.pcmCruiseSpeed) or not long_press:
+      return False
+
+    if self.speed_limit_snapped:
+      return True
+
+    if not self.has_speed_limit:
+      return False
+
+    speed_conv = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
+    unit_kph = 1. if is_metric else IMPERIAL_INCREMENT
+    target_kph = round(self.speed_limit_final_last * speed_conv) * unit_kph
+    target_kph = float(np.clip(round(target_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
+
+    if (button_type == ButtonType.accelCruise and target_kph > self.v_cruise_kph) or \
+       (button_type == ButtonType.decelCruise and target_kph < self.v_cruise_kph):
+      self.v_cruise_kph = target_kph
+      self.speed_limit_snapped = True
+      return True
 
     return False
 
